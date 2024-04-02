@@ -9,7 +9,7 @@ import { createCamera, createComposer, createRenderer, runApp, updateLoadingProg
 
 // Other deps
 import vertexShader from "./shaders/vertex.glsl"
-import fragmentShader from "./shaders/fragment_gasplanet.glsl"
+import fragmentShader from "./shaders/fragment_gasplanet2.glsl"
 import atmVertex from "./shaders/atmVertex.glsl"
 import atmFragment from "./shaders/atmFragment.glsl"
 
@@ -23,15 +23,22 @@ THREE.ColorManagement.enabled = true
  *************************************************/
 const params = {
   // general scene params
+  colorScheme: "monochromatic"
 }
 const uniforms = {
   ...getDefaultUniforms(),
-  scale: { value: 4.0 },
-  shift: { value: 100.0 },
-  rot_angle: { value: 0.1 },
-  octaves: { value: 5 },
-  freq_up_factor: { value: 2.0 },
-  amp_down_factor: { value: 0.6 },
+  scale: { value: 5.0 }, // use 4.0 for gasplanet.glsl, 5 for gasplanet2.glsl
+  shift: { value: 0.0 },
+  waverScale: { value: 0.6 },
+  waverFactor: { value: 0.9 },
+  waverShift: { value: 1.6 },
+  warperScale: { value: 2.0 },
+  warperFactor: { value: 0.4 },
+  pulserAmp: { value: 0.3 },
+  pulserOffset: { value: 0.0 },
+  hue: { value: 0.0 },
+  colorScheme: { value: 1 },
+  timeSpeed: { value: 0.03 }
 }
 
 
@@ -91,12 +98,53 @@ let app = {
 
     // GUI controls
     const gui = new dat.GUI()
-    gui.add(uniforms.scale, "value", 1, 10, 0.1).name("scale")
-    gui.add(uniforms.shift, "value", 0, 200, 1).name("shift")
-    gui.add(uniforms.rot_angle, "value", 0, 3.15, 0.05).name("rotation angle")
-    gui.add(uniforms.octaves, "value", 1, 10, 1).name("octaves")
-    gui.add(uniforms.freq_up_factor, "value", 1, 5, 0.1).name("frequency up")
-    gui.add(uniforms.amp_down_factor, "value", 0.05, 0.95, 0.05).name("amplitude down")
+    const guiCtrls = []
+    // add a customAdd method that adds randMin and randMax params to the controller
+    // so it's easier for us to implement a "randomize" button that randomizes each controller between its provided randMin and randMax
+    dat.GUI.prototype.customAdd = (obj, prop, min, max, step, randMin, randMax) => {
+      let controller = gui.add(obj, prop, min, max, step)
+      controller.randMin = randMin || min
+      controller.randMax = randMax || max
+      return controller
+    }
+    guiCtrls.push(gui.customAdd(uniforms.scale, "value", 1, 10, 0.1, 3, 7).name("Base scale"))
+    guiCtrls.push(gui.customAdd(uniforms.shift, "value", 0, 20, 0.1).name("Base shift"))
+    guiCtrls.push(gui.customAdd(uniforms.waverScale, "value", 0.1, 3, 0.1, 0.3, 1.2).name("Waver scale"))
+    guiCtrls.push(gui.customAdd(uniforms.waverFactor, "value", 0.0, 5, 0.01, 0.5, 1.5).name("Waver factor"))
+    guiCtrls.push(gui.customAdd(uniforms.waverShift, "value", 0.0, 5, 0.01).name("Waver shift"))
+    guiCtrls.push(gui.customAdd(uniforms.warperScale, "value", 0.1, 5, 0.1, 0.6, 2.6).name("Warper scale"))
+    guiCtrls.push(gui.customAdd(uniforms.warperFactor, "value", 0.0, 5, 0.01, 0.2, 0.6).name("Warper factor"))
+
+    guiCtrls.push(gui.customAdd(uniforms.pulserAmp, "value", 0.0, 5.0, 0.1, 0.0, 0.5).name("Pulser Amplitude"))
+    guiCtrls.push(gui.customAdd(uniforms.pulserOffset, "value", 0.0, 10.0, 0.01, 0.0, 2.0).name("Pulser Offset"))
+
+    guiCtrls.push(gui.customAdd(uniforms.hue, "value", 0.0, 1.0, 0.01).name("Hue"))
+    gui.add(uniforms.timeSpeed, "value", 0.01, 0.5, 0.01).name("Time Speed")
+    
+    let schemeMap = {
+      "monochromatic": 1,
+      "analogous": 2,
+      "reverse mono.": 3,
+      "reverse ana.": 4,
+    }
+    let schemeCtrl = gui.add(params, "colorScheme", Object.keys(schemeMap)).name("Color Scheme").onChange((val) => {
+      uniforms.colorScheme.value = schemeMap[val]
+    })
+
+    var randomProperty = (obj) => {
+      var keys = Object.keys(obj)
+      return keys[ keys.length * Math.random() << 0]
+    }
+    gui.add({
+      randomize: () => {
+        guiCtrls.forEach(ctrl => {
+          if (ctrl.randMin || ctrl.randMax) {
+            ctrl.setValue(ctrl.randMin + (ctrl.randMax - ctrl.randMin) * Math.random())
+          }
+        })
+        schemeCtrl.setValue(randomProperty(schemeMap))
+      }
+    }, "randomize")
 
     // Stats - show fps
     this.stats1 = new Stats()
@@ -123,4 +171,4 @@ let app = {
  * ps. if you don't use custom shaders, pass undefined to the 'uniforms'(2nd-last) param
  * ps. if you don't use post-processing, pass undefined to the 'composer'(last) param
  *************************************************/
-runApp(app, scene, renderer, camera, true, uniforms, undefined)
+runApp(app, scene, renderer, camera, true, uniforms)
