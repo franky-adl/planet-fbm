@@ -8,8 +8,11 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls"
 import { createCamera, createComposer, createRenderer, runApp, updateLoadingProgressBar, getDefaultUniforms } from "./core-utils"
 
 // Other deps
-import vertexShader from "./shaders/vertex.glsl"
-import fragmentShader from "./shaders/fragment_gasplanet2.glsl"
+// Lens flare implementation from https://github.com/ektogamat/lensflare-threejs-vanilla, take the source code directly
+// DO NOT copy source code from its live demos as they are outdated
+import { LensFlareEffect } from './LensFlare'
+import FunctionsShader from "./shaders/fragment_gasplanet_funcs.glsl"
+import ColorShader from "./shaders/fragment_gasplanet_clr.glsl"
 import atmVertex from "./shaders/atmVertex.glsl"
 import atmFragment from "./shaders/atmFragment.glsl"
 
@@ -76,12 +79,83 @@ let app = {
 
     await updateLoadingProgressBar(0.1)
 
+    const sunPos = new THREE.Vector3(25, 0, -40)
+    const sunLight = new THREE.DirectionalLight(0xffffff, 0.7)
+    sunLight.position.set(sunPos.x, sunPos.y, sunPos.z)
+    scene.add(sunLight)
+
+    const lensFlareEffect = LensFlareEffect(
+      true,                           // enabled
+      sunPos,  // lensPosition
+      0.8,                            // opacity
+      new THREE.Color(95, 12, 10),    // colorGain
+      2.0,                            // starPoints
+      0.1,                            // glareSize
+      0.004,                          // flareSize
+      0.0,                            // flareSpeed (we don't need the flare to animate)
+      1.5,                            // flareShape
+      1.0,                            // haloScale
+      false,                          // animated (we don't need the flare to animate)
+      false,                          // anamorphic (what is this?)
+      true,                           // secondaryGhosts
+      false,                          // starBurst (gpu intense, light fringes around the secondary ghost rings)
+      0.3,                            // ghostScale
+      true,                           // additionalStreaks
+      false                           // followMouse
+    )
+    scene.add(lensFlareEffect)
+
     this.geometry = new THREE.SphereGeometry(2, 64, 64)
-    this.material = new THREE.ShaderMaterial({
-      vertexShader: vertexShader,
-      fragmentShader: fragmentShader,
-      uniforms: uniforms
+    this.material = new THREE.MeshPhongMaterial({
+      color: new THREE.Color(0x000000),
+      specular: new THREE.Color(0xffffff),
+      shininess: 3
     })
+    this.material.onBeforeCompile = (shader) => {
+      shader.uniforms = {
+        ...shader.uniforms,
+        ...uniforms
+      }
+      shader.vertexShader = shader.vertexShader.replace('#include <common>', `
+        varying vec2 v_Uv;
+        varying vec3 v_Normal;
+
+        #include <common>
+      `);
+      shader.vertexShader = shader.vertexShader.replace('void main() {', `
+        void main() {
+          // normalMatrix transforms the normal vectors local to the model into view space
+          vec3 trnNormal = normalMatrix * normal;
+          v_Normal = normalize(trnNormal);
+          v_Uv = uv;
+      `);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `
+        uniform vec2 u_resolution;
+        uniform vec2 u_mouse;
+        uniform float u_time;
+        uniform float scale;
+        uniform float shift;
+        uniform float waverScale;
+        uniform float waverFactor;
+        uniform float waverShift;
+        uniform float warperScale;
+        uniform float warperFactor;
+        uniform float pulserAmp;
+        uniform float pulserOffset;
+        uniform float hue;
+        uniform int colorScheme;
+        uniform float timeSpeed;
+        varying vec2 v_Uv;
+        varying vec3 v_Normal;
+
+        #include <common>
+      `)
+      shader.fragmentShader = shader.fragmentShader.replace('#include <packing>', FunctionsShader+`
+        #include <packing>`)
+      shader.fragmentShader = shader.fragmentShader.replace('vec4 diffuseColor = vec4( diffuse, opacity );', `
+        vec4 diffuseColor = vec4( diffuse, opacity );
+      `+ColorShader)
+    }
     this.mesh = new THREE.Mesh(this.geometry, this.material)
     scene.add(this.mesh)
 
@@ -93,6 +167,10 @@ let app = {
       blending: THREE.AdditiveBlending, // works better than setting transparent: true, because it avoids a weird dark edge around the earth
       side: THREE.BackSide
     })
+    // this is for the checkTransparency of the LensFlare effect,
+    // such that the flare does not completely disappear behind the atmosphere
+    this.atmMat.transmission = 1.0
+
     this.atmMesh = new THREE.Mesh(this.atm, this.atmMat)
     scene.add(this.atmMesh)
 
@@ -145,6 +223,21 @@ let app = {
         schemeCtrl.setValue(randomProperty(schemeMap))
       }
     }, "randomize")
+
+    // gui.add(lensFlareEffect.material.uniforms.enabled, 'value').name('Enabled?')
+    // gui.add(lensFlareEffect.material.uniforms.followMouse, 'value').name('Follow Mouse?')
+    // gui.add(lensFlareEffect.material.uniforms.starPoints, 'value').name('starPoints').min(0).max(9)
+    // gui.add(lensFlareEffect.material.uniforms.glareSize, 'value').name('glareSize').min(0).max(2)
+    // gui.add(lensFlareEffect.material.uniforms.flareSize, 'value').name('flareSize').min(0).max(0.1).step(0.001)
+    // gui.add(lensFlareEffect.material.uniforms.flareSpeed, 'value').name('flareSpeed').min(0).max(1).step(0.01)
+    // gui.add(lensFlareEffect.material.uniforms.flareShape, 'value').name('flareShape').min(0).max(2).step(0.01)
+    // gui.add(lensFlareEffect.material.uniforms.haloScale, 'value').name('haloScale').min(-0.5).max(1).step(0.01)
+    // gui.add(lensFlareEffect.material.uniforms.ghostScale, 'value').name('ghostScale').min(0).max(2).step(0.01)
+    // gui.add(lensFlareEffect.material.uniforms.animated, 'value').name('animated')
+    // gui.add(lensFlareEffect.material.uniforms.anamorphic, 'value').name('anamorphic')
+    // gui.add(lensFlareEffect.material.uniforms.secondaryGhosts, 'value').name('secondaryGhosts')
+    // gui.add(lensFlareEffect.material.uniforms.starBurst, 'value').name('starBurst')
+    // gui.add(lensFlareEffect.material.uniforms.aditionalStreaks, 'value').name('aditionalStreaks')
 
     // Stats - show fps
     this.stats1 = new Stats()
