@@ -13,7 +13,7 @@ void main() {
     // Starting from the rim to the center at the back, dotP would increase from 0 to 1
     float dotP = dot( vNormal, eyeVector );
     // This factor is to create the effect of a realistic thickening of the atmosphere coloring
-    float factor = pow(dotP, 4.1) * 9.5;
+    float factor = pow(dotP, 4.5) * 9.5;
 
     vec3 atmColor = hsl2rgb(vec3(hue, 0.8, 0.7));
     // Adding in a bit of dotP to the color to make it whiter while the color intensifies

@@ -24,6 +24,7 @@ export let LensFlareParams = {}
  * @param {Number | undefined} ghostScale The float number of the ghosts scale
  * @param {Boolean | undefined} aditionalStreaks Enable or disable the aditional streaks
  * @param {Boolean | undefined} followMouse Enable or disable follow mouse lens flare
+ * @param {Object | undefined} customRaycaster provide a custom raycaster so you can set your own layers
  */
 
 export function LensFlareEffect(
@@ -43,7 +44,8 @@ export function LensFlareEffect(
   starBurst,
   ghostScale,
   aditionalStreaks,
-  followMouse
+  followMouse,
+  customRaycaster
 ) {
   LensFlareParams = {
     enabled: enabled != undefined ? enabled : true,
@@ -72,7 +74,7 @@ export function LensFlareEffect(
 
   let internalOpacity = oldOpacity
   let flarePosition = new THREE.Vector3()
-  const raycaster = new THREE.Raycaster()
+  const raycaster = customRaycaster || new THREE.Raycaster()
 
   const lensFlareMaterial = new THREE.ShaderMaterial({
     uniforms: {
@@ -534,7 +536,8 @@ export function LensFlareEffect(
     }
 
     lensFlareMaterial.uniforms.iTime.value = elapsedTime
-    easing.damp(lensFlareMaterial.uniforms.opacity, 'value', internalOpacity, 0.007, clock.getDelta())
+    // https://github.com/pmndrs/maath/blob/main/README.md#easing
+    easing.damp(lensFlareMaterial.uniforms.opacity, 'value', internalOpacity, 0.0007, clock.getDelta())
   }
 
   /**
@@ -544,7 +547,6 @@ export function LensFlareEffect(
     if (intersects[0]) {
       if (intersects[0].object) {
         if (intersects[0].object.visible) {
-          // console.log(intersects[0].object)
           if (intersects[0].object.material.transmission) {
             if (intersects[0].object.material.transmission > 0.2) {
               internalOpacity = oldOpacity * (intersects[0].object.material.transmission * 0.5)

@@ -5,7 +5,7 @@ import Stats from "three/examples/jsm/libs/stats.module"
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls"
 
 // Core boilerplate code deps
-import { createCamera, createComposer, createRenderer, runApp, updateLoadingProgressBar, getDefaultUniforms } from "./core-utils"
+import { createCamera, createRenderer, runApp, updateLoadingProgressBar, getDefaultUniforms } from "./core-utils"
 
 // Other deps
 // Lens flare implementation from https://github.com/ektogamat/lensflare-threejs-vanilla, take the source code directly
@@ -57,12 +57,12 @@ let scene = new THREE.Scene()
 let renderer = createRenderer({ antialias: true }, (_renderer) => {
   // best practice: ensure output colorspace is in sRGB, see Color Management documentation:
   // https://threejs.org/docs/#manual/en/introduction/Color-management
-  _renderer.outputColorSpace = THREE.SRGBColorSpace
+  _renderer.outputColorSpace = THREE.LinearSRGBColorSpace
 })
 
 // Create the camera
 // Pass in fov, near, far and camera position respectively
-let camera = createCamera(45, 1, 1000, { x: 0, y: 0, z: 6 })
+let camera = createCamera(50, 1, 1000, { x: -25 * Math.cos(Math.PI/6), y: 0, z: 25 * Math.sin(Math.PI/6) })
 
 
 /**************************************************
@@ -75,41 +75,37 @@ let app = {
   async initScene() {
     // OrbitControls
     this.controls = new OrbitControls(camera, renderer.domElement)
-    this.controls.enableDamping = true
+    this.controls.enableDamping = false
+    this.controls.autoRotate = true
+    this.controls.autoRotateSpeed = 1
+    // I've found that I need to "break" the perfect positioning in order to get my raycasting intersects working correctly
+    // if I simply let the controls rotate at polar angle perfectly at half of PI
+    // the raycasting intersects will return intermittent values when the "sun"(flare pos) is behind the planet
+    // then I test a similar scenario in threejs-earth, but the intersects are consistent
+    // tried tweaking stuff at the threejs-earth example and found the "culprit"
+    // If I comment out the axial tilt rotation for the mesh group, the same issue happens
+    // ...more on this super dumpass bug later, might want to raise a bug issue at threejs github
+    this.controls.maxPolarAngle = Math.PI / 2.05
+    this.controls.minPolarAngle = Math.PI / 2.05
 
     await updateLoadingProgressBar(0.1)
 
+    this.raycaster = new THREE.Raycaster()
+    this.raycaster.layers.set( 1 )
+
     const sunPos = new THREE.Vector3(25, 0, -40)
-    const sunLight = new THREE.DirectionalLight(0xffffff, 0.7)
+    const sunLight = new THREE.DirectionalLight(0xffffff, 1.5)
     sunLight.position.set(sunPos.x, sunPos.y, sunPos.z)
     scene.add(sunLight)
+    // we can't add ambient light or lighted bands until we fix the UV cut problem
+    // const ambLight = new THREE.AmbientLight(0xffffff, 1.2)
+    // scene.add(ambLight)
 
-    const lensFlareEffect = LensFlareEffect(
-      true,                           // enabled
-      sunPos,  // lensPosition
-      0.8,                            // opacity
-      new THREE.Color(95, 12, 10),    // colorGain
-      2.0,                            // starPoints
-      0.1,                            // glareSize
-      0.004,                          // flareSize
-      0.0,                            // flareSpeed (we don't need the flare to animate)
-      1.5,                            // flareShape
-      1.0,                            // haloScale
-      false,                          // animated (we don't need the flare to animate)
-      false,                          // anamorphic (what is this?)
-      true,                           // secondaryGhosts
-      false,                          // starBurst (gpu intense, light fringes around the secondary ghost rings)
-      0.3,                            // ghostScale
-      true,                           // additionalStreaks
-      false                           // followMouse
-    )
-    scene.add(lensFlareEffect)
-
-    this.geometry = new THREE.SphereGeometry(2, 64, 64)
+    this.geometry = new THREE.SphereGeometry(10, 64, 64)
     this.material = new THREE.MeshPhongMaterial({
-      color: new THREE.Color(0x000000),
+      color: new THREE.Color(0xff0000),
       specular: new THREE.Color(0xffffff),
-      shininess: 3
+      shininess: 1
     })
     this.material.onBeforeCompile = (shader) => {
       shader.uniforms = {
@@ -157,9 +153,10 @@ let app = {
       `+ColorShader)
     }
     this.mesh = new THREE.Mesh(this.geometry, this.material)
+    this.mesh.layers.enable(1)
     scene.add(this.mesh)
 
-    this.atm = new THREE.SphereGeometry(2.38, 64, 64)
+    this.atm = new THREE.SphereGeometry(12, 64, 64)
     this.atmMat = new THREE.ShaderMaterial({
       vertexShader: atmVertex,
       fragmentShader: atmFragment,
@@ -167,12 +164,31 @@ let app = {
       blending: THREE.AdditiveBlending, // works better than setting transparent: true, because it avoids a weird dark edge around the earth
       side: THREE.BackSide
     })
-    // this is for the checkTransparency of the LensFlare effect,
-    // such that the flare does not completely disappear behind the atmosphere
-    this.atmMat.transmission = 1.0
 
     this.atmMesh = new THREE.Mesh(this.atm, this.atmMat)
     scene.add(this.atmMesh)
+
+    const lensFlareEffect = LensFlareEffect(
+      true,                           // enabled
+      sunPos,  // lensPosition
+      0.8,                            // opacity
+      new THREE.Color(77, 102, 19),   // colorGain
+      3.0,                            // starPoints
+      0.04,                            // glareSize
+      0.002,                          // flareSize
+      0.0,                            // flareSpeed (we don't need the flare to animate)
+      0.6,                            // flareShape
+      1.0,                            // haloScale
+      false,                          // animated (we don't need the flare to animate)
+      false,                          // anamorphic (what is this?)
+      true,                           // secondaryGhosts
+      false,                          // starBurst (gpu intense, light fringes around the secondary ghost rings)
+      0.3,                            // ghostScale
+      true,                           // additionalStreaks
+      false,                          // followMouse
+      this.raycaster,                 // customRaycaster (extended attribute added to the LensFlare source code)
+    )
+    scene.add(lensFlareEffect)
 
     // GUI controls
     const gui = new dat.GUI()
@@ -224,6 +240,7 @@ let app = {
       }
     }, "randomize")
 
+    // uncomment to test with different lens flare settings
     // gui.add(lensFlareEffect.material.uniforms.enabled, 'value').name('Enabled?')
     // gui.add(lensFlareEffect.material.uniforms.followMouse, 'value').name('Follow Mouse?')
     // gui.add(lensFlareEffect.material.uniforms.starPoints, 'value').name('starPoints').min(0).max(9)
