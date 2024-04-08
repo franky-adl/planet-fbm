@@ -8,6 +8,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls"
 import { createCamera, createRenderer, runApp, updateLoadingProgressBar, getDefaultUniforms } from "./core-utils"
 
 // Other deps
+import { loadTexture } from "./common-utils"
 // Lens flare implementation from https://github.com/ektogamat/lensflare-threejs-vanilla, take the source code directly
 // DO NOT copy source code from its live demos as they are outdated
 import { LensFlareEffect } from './LensFlare'
@@ -15,6 +16,8 @@ import FunctionsShader from "./shaders/fragment_gasplanet_funcs.glsl"
 import ColorShader from "./shaders/fragment_gasplanet_clr.glsl"
 import atmVertex from "./shaders/atmVertex.glsl"
 import atmFragment from "./shaders/atmFragment.glsl"
+// nebulae image from 123RF Plus plan(Free Trial)
+import Nebula from "./assets/HDR_nebulae_8.png"
 
 global.THREE = THREE
 // previously this feature is .legacyMode = false, see https://www.donmccurdy.com/2020/06/17/color-management-in-threejs/
@@ -26,7 +29,7 @@ THREE.ColorManagement.enabled = true
  *************************************************/
 const params = {
   // general scene params
-  colorScheme: "monochromatic"
+  colorScheme: "reverse ana."
 }
 const uniforms = {
   ...getDefaultUniforms(),
@@ -39,7 +42,7 @@ const uniforms = {
   warperFactor: { value: 0.4 },
   pulserAmp: { value: 0.3 },
   pulserOffset: { value: 0.0 },
-  hue: { value: 0.0 },
+  hue: { value: 0.5 },
   colorScheme: { value: 1 },
   timeSpeed: { value: 0.03 }
 }
@@ -57,12 +60,12 @@ let scene = new THREE.Scene()
 let renderer = createRenderer({ antialias: true }, (_renderer) => {
   // best practice: ensure output colorspace is in sRGB, see Color Management documentation:
   // https://threejs.org/docs/#manual/en/introduction/Color-management
-  _renderer.outputColorSpace = THREE.LinearSRGBColorSpace
+  _renderer.outputColorSpace = THREE.SRGBColorSpace
 })
 
 // Create the camera
 // Pass in fov, near, far and camera position respectively
-let camera = createCamera(50, 1, 1000, { x: -25 * Math.cos(Math.PI/6), y: 0, z: 25 * Math.sin(Math.PI/6) })
+let camera = createCamera(50, 1, 1000, { x: -27 * Math.cos(Math.PI/6), y: 0, z: 27 * Math.sin(Math.PI/6) })
 
 
 /**************************************************
@@ -77,7 +80,7 @@ let app = {
     this.controls = new OrbitControls(camera, renderer.domElement)
     this.controls.enableDamping = false
     this.controls.autoRotate = true
-    this.controls.autoRotateSpeed = 1
+    this.controls.autoRotateSpeed = 0.5
     // I've found that I need to "break" the perfect positioning in order to get my raycasting intersects working correctly
     // if I simply let the controls rotate at polar angle perfectly at half of PI
     // the raycasting intersects will return intermittent values when the "sun"(flare pos) is behind the planet
@@ -89,6 +92,13 @@ let app = {
     this.controls.minPolarAngle = Math.PI / 2.05
 
     await updateLoadingProgressBar(0.1)
+
+    const nebulaBg = await loadTexture(Nebula)
+    nebulaBg.colorSpace = THREE.SRGBColorSpace
+    nebulaBg.mapping = THREE.EquirectangularReflectionMapping
+    scene.background = nebulaBg
+
+    await updateLoadingProgressBar(0.6)
 
     this.raycaster = new THREE.Raycaster()
     this.raycaster.layers.set( 1 )
@@ -151,6 +161,8 @@ let app = {
       shader.fragmentShader = shader.fragmentShader.replace('vec4 diffuseColor = vec4( diffuse, opacity );', `
         vec4 diffuseColor = vec4( diffuse, opacity );
       `+ColorShader)
+      // we want to keep the colors in Linear space as it looks less bright and more vibrant and that's the effect we want
+      shader.fragmentShader = shader.fragmentShader.replace('#include <colorspace_fragment>', '')
     }
     this.mesh = new THREE.Mesh(this.geometry, this.material)
     this.mesh.layers.enable(1)
@@ -239,22 +251,6 @@ let app = {
         schemeCtrl.setValue(randomProperty(schemeMap))
       }
     }, "randomize")
-
-    // uncomment to test with different lens flare settings
-    // gui.add(lensFlareEffect.material.uniforms.enabled, 'value').name('Enabled?')
-    // gui.add(lensFlareEffect.material.uniforms.followMouse, 'value').name('Follow Mouse?')
-    // gui.add(lensFlareEffect.material.uniforms.starPoints, 'value').name('starPoints').min(0).max(9)
-    // gui.add(lensFlareEffect.material.uniforms.glareSize, 'value').name('glareSize').min(0).max(2)
-    // gui.add(lensFlareEffect.material.uniforms.flareSize, 'value').name('flareSize').min(0).max(0.1).step(0.001)
-    // gui.add(lensFlareEffect.material.uniforms.flareSpeed, 'value').name('flareSpeed').min(0).max(1).step(0.01)
-    // gui.add(lensFlareEffect.material.uniforms.flareShape, 'value').name('flareShape').min(0).max(2).step(0.01)
-    // gui.add(lensFlareEffect.material.uniforms.haloScale, 'value').name('haloScale').min(-0.5).max(1).step(0.01)
-    // gui.add(lensFlareEffect.material.uniforms.ghostScale, 'value').name('ghostScale').min(0).max(2).step(0.01)
-    // gui.add(lensFlareEffect.material.uniforms.animated, 'value').name('animated')
-    // gui.add(lensFlareEffect.material.uniforms.anamorphic, 'value').name('anamorphic')
-    // gui.add(lensFlareEffect.material.uniforms.secondaryGhosts, 'value').name('secondaryGhosts')
-    // gui.add(lensFlareEffect.material.uniforms.starBurst, 'value').name('starBurst')
-    // gui.add(lensFlareEffect.material.uniforms.aditionalStreaks, 'value').name('aditionalStreaks')
 
     // Stats - show fps
     this.stats1 = new Stats()
